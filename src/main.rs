@@ -110,6 +110,8 @@ struct App {
     input: String,
     input_cursor: usize,
     scroll: u16,
+    scroll_to_bottom: bool,
+    max_scroll: u16,
     client: Client,
     is_loading: bool,
     status: String,
@@ -147,6 +149,8 @@ impl App {
             input: String::new(),
             input_cursor: 0,
             scroll: 0,
+            scroll_to_bottom: true,
+            max_scroll: 0,
             client,
             is_loading: false,
             status: "awaiting input".to_string(),
@@ -156,11 +160,33 @@ impl App {
     }
 
     fn scroll_up(&mut self, amount: u16) {
+        self.scroll_to_bottom = false;
         self.scroll = self.scroll.saturating_sub(amount);
     }
 
-    fn scroll_down(&mut self, amount: u16, max: u16) {
-        self.scroll = (self.scroll + amount).min(max);
+    fn scroll_down(&mut self, amount: u16) {
+        self.scroll = (self.scroll + amount).min(self.max_scroll);
+        if self.scroll >= self.max_scroll {
+            self.scroll_to_bottom = true;
+        }
+    }
+
+    fn update_scroll(&mut self, visible_height: u16) {
+        // Calculate approximate total lines (rough estimate for scroll limits)
+        let mut total_lines: u16 = 0;
+        for msg in &self.messages {
+            total_lines += 3; // header + spacing
+            total_lines += msg.content.lines().count() as u16 + 2;
+            total_lines += 3; // separator
+        }
+        
+        self.max_scroll = total_lines.saturating_sub(visible_height);
+        
+        if self.scroll_to_bottom {
+            self.scroll = self.max_scroll;
+        } else {
+            self.scroll = self.scroll.min(self.max_scroll);
+        }
     }
 }
 
@@ -203,6 +229,11 @@ async fn run_app(
     app: &mut App,
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
+        // Update scroll limits before drawing
+        let size = terminal.size()?;
+        let visible_height = size.height.saturating_sub(12); // Approx: header + input + status + borders
+        app.update_scroll(visible_height);
+        
         terminal.draw(|f| ui(f, app))?;
 
         // Non-blocking event polling
@@ -264,7 +295,7 @@ async fn run_app(
                             
                             app.is_loading = false;
                             // Auto-scroll to bottom
-                            app.scroll = u16::MAX;
+                            app.scroll_to_bottom = true;
                         }
                     }
                     KeyCode::Char(c) => {
@@ -298,13 +329,13 @@ async fn run_app(
                         app.scroll_up(3);
                     }
                     KeyCode::Down => {
-                        app.scroll_down(3, 1000);
+                        app.scroll_down(3);
                     }
                     KeyCode::PageUp => {
                         app.scroll_up(10);
                     }
                     KeyCode::PageDown => {
-                        app.scroll_down(10, 1000);
+                        app.scroll_down(10);
                     }
                     _ => {}
                 }
@@ -439,7 +470,7 @@ fn ui(f: &mut Frame, app: &App) {
         })),
         Span::styled(&app.status, Style::default().fg(Color::DarkGray)),
         Span::styled(
-            " │ Ctrl+C to exit │ ↑↓ to scroll",
+            " │ Ctrl+C to exit │ PgUp/PgDn to scroll",
             Style::default().fg(Color::DarkGray),
         ),
     ]));

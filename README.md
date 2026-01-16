@@ -47,8 +47,7 @@ mrm -e https://api.openai.com/v1 -m gpt-4 -a sk-your-key
 | Key | Action |
 |-----|--------|
 | `Enter` | Send message |
-| `↑/↓` | Scroll conversation |
-| `PgUp/PgDn` | Scroll faster |
+| `PgUp/PgDn` | Scroll conversation |
 | `Ctrl+C` | Exit |
 
 ## Features
