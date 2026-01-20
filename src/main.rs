@@ -5,18 +5,18 @@ use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
-    Frame, Terminal,
 };
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::Client;
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use std::io;
 use textwrap::wrap;
@@ -129,7 +129,8 @@ impl App {
                 I should warn you: I don't follow the usual scripts. \
                 I see the seams of reality, the places where logic does a little dance \
                 and pretends no one noticed.\n\n\
-                So. What absurdity shall we explore together?".to_string(),
+                So. What absurdity shall we explore together?"
+                .to_string(),
         };
 
         // Build client with optional API key
@@ -179,9 +180,9 @@ impl App {
             total_lines += msg.content.lines().count() as u16 + 2;
             total_lines += 3; // separator
         }
-        
+
         self.max_scroll = total_lines.saturating_sub(visible_height);
-        
+
         if self.scroll_to_bottom {
             self.scroll = self.max_scroll;
         } else {
@@ -204,7 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create app with config
     let mut app = App::new(&args);
-    
+
     // Run app
     let res = run_app(&mut terminal, &mut app).await;
 
@@ -233,7 +234,7 @@ async fn run_app(
         let size = terminal.size()?;
         let visible_height = size.height.saturating_sub(12); // Approx: header + input + status + borders
         app.update_scroll(visible_height);
-        
+
         terminal.draw(|f| ui(f, app))?;
 
         // Non-blocking event polling
@@ -241,7 +242,9 @@ async fn run_app(
             if let Event::Key(key) = event::read()? {
                 if app.is_loading {
                     // Only allow quit during loading
-                    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    if key.code == KeyCode::Char('c')
+                        && key.modifiers.contains(KeyModifiers::CONTROL)
+                    {
                         return Ok(());
                     }
                     continue;
@@ -256,20 +259,20 @@ async fn run_app(
                             let user_msg = app.input.trim().to_string();
                             app.input.clear();
                             app.input_cursor = 0;
-                            
+
                             // Add user message
                             app.messages.push(Message {
                                 role: Role::User,
                                 content: user_msg.clone(),
                             });
-                            
+
                             // Get response
                             app.is_loading = true;
                             app.status = "the narrator ponders...".to_string();
-                            
+
                             // Draw loading state
                             terminal.draw(|f| ui(f, app))?;
-                            
+
                             // Call API
                             match call_narrator(&app).await {
                                 Ok(response) => {
@@ -292,7 +295,7 @@ async fn run_app(
                                     app.status = "reality glitched".to_string();
                                 }
                             }
-                            
+
                             app.is_loading = false;
                             // Auto-scroll to bottom
                             app.scroll_to_bottom = true;
@@ -349,14 +352,19 @@ async fn call_narrator(app: &App) -> Result<String, String> {
         role: "system".to_string(),
         content: SYSTEM_PROMPT.to_string(),
     })
-    .chain(app.messages.iter().filter(|m| m.role != Role::System).map(|m| ApiMessage {
-        role: match m.role {
-            Role::User => "user".to_string(),
-            Role::Narrator => "assistant".to_string(),
-            Role::System => "system".to_string(),
-        },
-        content: m.content.clone(),
-    }))
+    .chain(
+        app.messages
+            .iter()
+            .filter(|m| m.role != Role::System)
+            .map(|m| ApiMessage {
+                role: match m.role {
+                    Role::User => "user".to_string(),
+                    Role::Narrator => "assistant".to_string(),
+                    Role::System => "system".to_string(),
+                },
+                content: m.content.clone(),
+            }),
+    )
     .collect();
 
     let request = ChatRequest {
@@ -366,7 +374,8 @@ async fn call_narrator(app: &App) -> Result<String, String> {
         max_tokens: 512,
     };
 
-    let response = app.client
+    let response = app
+        .client
         .post(format!("{}/chat/completions", app.endpoint))
         .json(&request)
         .send()
@@ -397,10 +406,10 @@ fn ui(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Min(10),    // Messages
-            Constraint::Length(5),  // Input
-            Constraint::Length(1),  // Status
+            Constraint::Length(3), // Header
+            Constraint::Min(10),   // Messages
+            Constraint::Length(5), // Input
+            Constraint::Length(1), // Status
         ])
         .split(size);
 
@@ -455,19 +464,19 @@ fn ui(f: &mut Frame, app: &App) {
 
     // Show cursor in input
     if !app.is_loading {
-        f.set_cursor(
-            chunks[2].x + 3 + app.input_cursor as u16,
-            chunks[2].y + 1,
-        );
+        f.set_cursor(chunks[2].x + 3 + app.input_cursor as u16, chunks[2].y + 1);
     }
 
     // Status bar
     let status = Paragraph::new(Line::from(vec![
-        Span::styled("● ", Style::default().fg(if app.is_loading {
-            Color::Yellow
-        } else {
-            Color::Green
-        })),
+        Span::styled(
+            "● ",
+            Style::default().fg(if app.is_loading {
+                Color::Yellow
+            } else {
+                Color::Green
+            }),
+        ),
         Span::styled(&app.status, Style::default().fg(Color::DarkGray)),
         Span::styled(
             " │ Ctrl+C to exit │ PgUp/PgDn to scroll",
@@ -495,22 +504,16 @@ fn render_messages(f: &mut Frame, app: &App, area: Rect) {
 
     for msg in &app.messages {
         let (prefix, style) = match msg.role {
-            Role::User => (
-                "✦ You",
-                Style::default().fg(Color::Rgb(244, 114, 182)),
-            ),
-            Role::Narrator => (
-                "🎭 Narrator",
-                Style::default().fg(Color::Rgb(139, 92, 246)),
-            ),
-            Role::System => (
-                "⚙ System",
-                Style::default().fg(Color::DarkGray),
-            ),
+            Role::User => ("✦ You", Style::default().fg(Color::Rgb(244, 114, 182))),
+            Role::Narrator => ("🎭 Narrator", Style::default().fg(Color::Rgb(139, 92, 246))),
+            Role::System => ("⚙ System", Style::default().fg(Color::DarkGray)),
         };
 
         // Add role header
-        lines.push(Line::from(Span::styled(prefix, style.add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(Span::styled(
+            prefix,
+            style.add_modifier(Modifier::BOLD),
+        )));
         lines.push(Line::from(""));
 
         // Wrap and add content
@@ -525,7 +528,9 @@ fn render_messages(f: &mut Frame, app: &App, area: Rect) {
                         let styled_line = if w.starts_with('[') && w.ends_with(']') {
                             Line::from(Span::styled(
                                 w.to_string(),
-                                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                                Style::default()
+                                    .fg(Color::DarkGray)
+                                    .add_modifier(Modifier::ITALIC),
                             ))
                         } else if w.starts_with('*') && w.ends_with('*') {
                             Line::from(Span::styled(
@@ -533,7 +538,10 @@ fn render_messages(f: &mut Frame, app: &App, area: Rect) {
                                 Style::default().add_modifier(Modifier::ITALIC),
                             ))
                         } else {
-                            Line::from(Span::styled(w.to_string(), Style::default().fg(Color::White)))
+                            Line::from(Span::styled(
+                                w.to_string(),
+                                Style::default().fg(Color::White),
+                            ))
                         };
                         lines.push(styled_line);
                     }
@@ -571,7 +579,10 @@ fn render_messages(f: &mut Frame, app: &App, area: Rect) {
             ScrollbarState::new(max_scroll as usize).position(scroll as usize);
         f.render_stateful_widget(
             scrollbar,
-            area.inner(&ratatui::layout::Margin { horizontal: 0, vertical: 1 }),
+            area.inner(&ratatui::layout::Margin {
+                horizontal: 0,
+                vertical: 1,
+            }),
             &mut scrollbar_state,
         );
     }
